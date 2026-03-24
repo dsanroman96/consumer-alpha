@@ -1,0 +1,65 @@
+name: Update dep-alpha version
+
+on:
+  repository_dispatch:
+    types: [dep-alpha-released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to set (example: v0.0.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update-dependency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve incoming version
+        id: incoming
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ github.event.client_payload.version || github.event.inputs.version }}"
+          if [ -z "${VERSION}" ]; then
+            echo "No version provided."
+            exit 1
+          fi
+
+          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format: ${VERSION}"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update tracked version
+        id: update
+        run: |
+          set -euo pipefail
+
+          TARGET_FILE="deps/dep-alpha.version"
+          CURRENT="$(cat "${TARGET_FILE}" || true)"
+          NEXT="${{ steps.incoming.outputs.version }}"
+
+          if [ "${CURRENT}" = "${NEXT}" ]; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "${NEXT}" > "${TARGET_FILE}"
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit and push
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deps/dep-alpha.version
+          git commit -m "chore: update dep-alpha to ${{ steps.incoming.outputs.version }}"
+          git push
